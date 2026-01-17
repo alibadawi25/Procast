@@ -37,20 +37,24 @@ export default function Intro({ onLogin }: { onLogin: () => void }) {
     <div className="relative min-h-screen bg-gradient-to-b from-[#1a3a52] to-[#2e4f6a] text-[#e8dcc8] overflow-hidden">
       {/* Hero Section */}
       <section className="relative z-10 max-w-7xl mx-auto px-6 pt-20 pb-12 text-center min-h-[65vh]">
-        <motion.h1
+        <motion.div
           initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}
-          className="text-4xl md:text-5xl font-semibold tracking-tight text-white"
+          className="flex justify-center"
         >
-          Procast
-        </motion.h1>
+          <img
+            src="/src/imgs/Off white.png"
+            alt="Procast"
+            className="h-16 md:h-20"
+          />
+        </motion.div>
 
         <motion.p
           initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.2 }}
-          className="mt-3 text-lg text-[#d4c5a9] max-w-xl mx-auto"
+          className="mt-8 text-lg text-[#d4c5a9] max-w-xl mx-auto"
         >
           Anticipate demand, reduce risk, and make confident, data-driven
           decisions.
@@ -149,7 +153,7 @@ export default function Intro({ onLogin }: { onLogin: () => void }) {
           </motion.div>
         </motion.div>
         {/* Scroll Indicator */}
-        <div className="absolute bottom-15 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center pointer-events-none">
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center pointer-events-none">
           <span className="text-sm text-[#d4c5a9] mb-2 tracking-wide">
             Scroll to explore
           </span>
