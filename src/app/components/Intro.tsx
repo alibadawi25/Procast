@@ -44,7 +44,7 @@ export default function Intro({ onLogin }: { onLogin: () => void }) {
           className="flex justify-center"
         >
           <img
-            src="/src/imgs/Off white.png"
+            src="https://ibb.co/Lzzvg5Jm"
             alt="Procast"
             className="h-16 md:h-20"
           />
