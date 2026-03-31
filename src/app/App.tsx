@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Sidebar } from './components/Sidebar';
 import { Overview } from './components/Overview';
 import { UploadData } from './components/UploadData';
@@ -99,7 +100,32 @@ const defaultSalesGroups: SalesGroup[] = [
   },
 ];
 
+const SECTION_TO_PATH: Record<string, string> = {
+  overview: '/overview',
+  upload: '/sales-groups',
+  forecast: '/forecast',
+  dashboard: '/dashboard',
+  notes: '/notes',
+  proask: '/proask',
+  history: '/history',
+};
+
+const PATH_TO_SECTION: Record<string, string> = {
+  '/': 'overview',
+  '/overview': 'overview',
+  '/sales-groups': 'upload',
+  '/forecast': 'forecast',
+  '/dashboard': 'dashboard',
+  '/notes': 'notes',
+  '/proask': 'proask',
+  '/history': 'history',
+};
+
+const AUTH_STORAGE_KEY = 'procast:isAuthenticated';
+
 export default function App() {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [activeSection, setActiveSection] = useState('overview');
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [notifications, setNotifications] = useState<string[]>([
@@ -113,7 +139,13 @@ export default function App() {
   const [currency, setCurrency] = useState<'EGP' | 'USD' | 'EUR'>('EGP');
   const [units, setUnits] = useState<'units' | 'cartons'>('units');
   const [showSettings, setShowSettings] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(() => {
+    try {
+      return localStorage.getItem(AUTH_STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
   const [salesGroups, setSalesGroups] = useState<SalesGroup[]>(defaultSalesGroups);
   const [isSalesGroupsLoading, setIsSalesGroupsLoading] = useState(true);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -147,9 +179,30 @@ export default function App() {
     const scale = fontSize === 'sm' ? 0.9 : fontSize === 'lg' ? 1.1 : 1;
     document.documentElement.style.setProperty('--app-font-scale', String(scale));
   }, [fontSize]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(AUTH_STORAGE_KEY, String(isAuthenticated));
+    } catch {
+      // ignore storage errors
+    }
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    const mappedSection = PATH_TO_SECTION[location.pathname];
+    if (!mappedSection) {
+      navigate('/overview', { replace: true });
+      return;
+    }
+    setActiveSection(mappedSection);
+  }, [location.pathname, navigate]);
   
   const handleSectionChange = (section: string) => {
     setActiveSection(section);
+    const nextPath = SECTION_TO_PATH[section] ?? '/overview';
+    if (location.pathname !== nextPath) {
+      navigate(nextPath);
+    }
   };
 
   const handleReorderSalesGroups = (newOrder: SalesGroup[]) => {
@@ -176,7 +229,14 @@ export default function App() {
   };
 
   if (!isAuthenticated) {
-    return <Intro onLogin={() => setIsAuthenticated(true)} />;
+    return (
+      <Intro
+        onLogin={() => {
+          setIsAuthenticated(true);
+          navigate('/overview', { replace: true });
+        }}
+      />
+    );
   }
 
   const renderContent = () => {

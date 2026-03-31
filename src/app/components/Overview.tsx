@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Upload, TrendingUp, Package, Users, BarChart3, Activity, MessageSquare } from 'lucide-react';
@@ -33,7 +33,7 @@ const productMixData = [
   { name: 'Others', value: 800, percentage: 6 },
 ];
 
-const COLORS = ['#1a3a52', '#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
+const COLORS = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-3)', 'var(--chart-4)', 'var(--chart-5)'];
 
 const recentActivity = [
   { type: 'upload', title: 'APM 1L', date: '2 hours ago', status: 'completed' },
@@ -44,6 +44,23 @@ const recentActivity = [
 
 export function Overview({ onNavigate, currency, units }: OverviewProps) {
   const unitsLabel = units === 'cartons' ? 'cartons' : 'units';
+  const [isDarkMode, setIsDarkMode] = useState(() =>
+    document.documentElement.classList.contains('dark')
+  );
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const syncDarkMode = () => setIsDarkMode(root.classList.contains('dark'));
+    syncDarkMode();
+
+    const observer = new MutationObserver(syncDarkMode);
+    observer.observe(root, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, []);
+
+  const chartGridStroke = isDarkMode ? 'rgba(186, 209, 233, 0.36)' : '#e5e7eb';
+  const chartAxisStroke = isDarkMode ? '#c4d4e6' : '#6b7280';
+  const chartLineStroke = isDarkMode ? 'var(--chart-1)' : '#1a3a52';
   const formatCurrency = useMemo(
     () =>
       new Intl.NumberFormat('en-US', {
@@ -119,12 +136,43 @@ export function Overview({ onNavigate, currency, units }: OverviewProps) {
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
               <LineChart data={salesData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="month" stroke="#6b7280" />
-                <YAxis stroke="#6b7280" />
-                <Tooltip formatter={(value: number) => `${value.toLocaleString()} ${unitsLabel}`} />
-                <Legend />
-                <Line type="monotone" dataKey="sales" stroke="#1a3a52" strokeWidth={2} name="Actual Sales" />
+                <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
+                <XAxis
+                  dataKey="month"
+                  stroke={chartAxisStroke}
+                  axisLine={{ stroke: chartGridStroke }}
+                  tickLine={{ stroke: chartGridStroke }}
+                  tick={{ fill: chartAxisStroke, fontSize: 12 }}
+                />
+                <YAxis
+                  stroke={chartAxisStroke}
+                  axisLine={{ stroke: chartGridStroke }}
+                  tickLine={{ stroke: chartGridStroke }}
+                  tick={{ fill: chartAxisStroke, fontSize: 12 }}
+                />
+                <Tooltip
+                  formatter={(value: number) => `${value.toLocaleString()} ${unitsLabel}`}
+                  contentStyle={
+                    isDarkMode
+                      ? {
+                          backgroundColor: 'var(--card)',
+                          border: '1px solid var(--border)',
+                          borderRadius: '10px',
+                          color: 'var(--foreground)',
+                        }
+                      : undefined
+                  }
+                  labelStyle={isDarkMode ? { color: 'var(--foreground)', fontWeight: 600 } : undefined}
+                  itemStyle={isDarkMode ? { color: 'var(--foreground)' } : undefined}
+                />
+                <Legend wrapperStyle={isDarkMode ? { color: chartAxisStroke, paddingTop: 8 } : undefined} />
+                <Line
+                  type="monotone"
+                  dataKey="sales"
+                  stroke={chartLineStroke}
+                  strokeWidth={2}
+                  name="Actual Sales"
+                />
               </LineChart>
             </ResponsiveContainer>
           </CardContent>

@@ -20,6 +20,7 @@ import UsersIcon from "@heroicons/react/24/outline/UsersIcon";
 import ArrowTrendingUpIcon from "@heroicons/react/24/outline/ArrowTrendingUpIcon";
 import ShieldCheckIcon from "@heroicons/react/24/outline/ShieldCheckIcon";
 import LightbulbIcon from "@heroicons/react/24/outline/LightbulbIcon";
+import BlueLogo from "../../imgs/Blue.png";
 
 export default function Intro({ onLogin }: { onLogin: () => void }) {
   const [demoOpen, setDemoOpen] = useState(false);
@@ -74,9 +75,8 @@ export default function Intro({ onLogin }: { onLogin: () => void }) {
       {/* Header */}
       <header className="sticky top-0 z-40 border-b border-border bg-background/90 backdrop-blur">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2 font-semibold text-lg" style={headlineStyle}>
-            <span className="h-2 w-2 rounded-full bg-primary" />
-            Procast
+          <div className="flex items-center">
+            <img src={BlueLogo} alt="Procast logo" className="h-10 w-auto object-contain" />
           </div>
           <nav className="hidden md:flex items-center gap-6 text-sm text-muted-foreground">
             <a className="rounded-full px-3 py-1 hover:bg-[#1a3a52] hover:text-white transition-colors" href="#problem">

@@ -8,7 +8,8 @@ import { Badge } from './ui/badge';
 import { Skeleton } from './ui/skeleton';
 import { Plus, Search, Calendar, Upload as UploadIcon, CheckCircle, AlertCircle, ChevronRight, Trash2, Download, GripVertical, Star } from 'lucide-react';
 import { CategorySlicer } from './CategorySlicer';
-import * as XLSX from 'xlsx';
+import { Workbook } from 'exceljs';
+import { downloadWorkbook } from '../lib/excel';
 import { DndProvider, useDrag, useDrop } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import {
@@ -101,28 +102,28 @@ const generateMockData = (groupName: string): { date: string; sales: number; pri
 };
 
 // Export function to download Excel file
-const exportToExcel = (group: SalesGroup) => {
+const exportToExcel = async (group: SalesGroup) => {
   const data = generateMockData(group.name);
-  
+
   // Create workbook and worksheet
-  const workbook = XLSX.utils.book_new();
-  const worksheet = XLSX.utils.json_to_sheet(data);
-  
-  // Set column widths
-  worksheet['!cols'] = [
-    { wch: 12 }, // Date
-    { wch: 15 }, // Sales
-    { wch: 10 }, // Price
+  const workbook = new Workbook();
+  const worksheet = workbook.addWorksheet('Sales Data');
+
+  worksheet.columns = [
+    { header: 'Date', key: 'date', width: 12 },
+    { header: 'Sales', key: 'sales', width: 15 },
+    { header: 'Price', key: 'price', width: 10 },
   ];
-  
-  // Add worksheet to workbook
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Sales Data');
-  
+
+  data.forEach((row) => {
+    worksheet.addRow(row);
+  });
+
   // Generate filename
   const filename = `${group.name.replace(/[^a-zA-Z0-9]/g, '_')}_sales_data.xlsx`;
-  
+
   // Download the file
-  XLSX.writeFile(workbook, filename);
+  await downloadWorkbook(workbook, filename);
 };
 
 export function UploadData({ salesGroups: propSalesGroups, onReorder, onTogglePin, isLoading, onUploadSuccess }: UploadDataProps) {
@@ -985,7 +986,7 @@ const DraggableCard = memo(function DraggableCard({
             className="text-muted-foreground hover:text-primary hover:bg-primary/10"
             onClick={(e) => {
               e.stopPropagation();
-              exportToExcel(group);
+              void exportToExcel(group);
             }}
             title="Export to Excel"
           >

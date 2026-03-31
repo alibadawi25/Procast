@@ -8,7 +8,8 @@ import { Calendar, Search, Star, Download } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { CategorySlicer } from './CategorySlicer';
-import * as XLSX from 'xlsx';
+import { Workbook } from 'exceljs';
+import { downloadWorkbook } from '../lib/excel';
 
 interface SalesGroup {
   id: string;
@@ -213,23 +214,26 @@ export function History({ salesGroups, onTogglePin, isLoading, onNavigate, units
     }
   };
 
-  const downloadGroupHistoryExcel = () => {
+  const downloadGroupHistoryExcel = async () => {
     if (!selectedGroup || allForecastedMonths.length === 0) return;
 
-    const workbook = XLSX.utils.book_new();
-    const valuesSheet = XLSX.utils.json_to_sheet(
-      allForecastedMonths.map((row) => ({
+    const workbook = new Workbook();
+    const worksheet = workbook.addWorksheet('Forecast History');
+
+    worksheet.columns = [
+      { header: 'Date', key: 'date', width: 14 },
+      { header: `Value (${unitsLabel})`, key: 'value', width: 14 },
+    ];
+
+    allForecastedMonths.forEach((row) => {
+      worksheet.addRow({
         date: row.date,
-        [`value (${unitsLabel})`]: row.value,
-      }))
-    );
-
-    valuesSheet['!cols'] = [{ wch: 14 }, { wch: 14 }];
-
-    XLSX.utils.book_append_sheet(workbook, valuesSheet, 'Forecast History');
+        value: row.value,
+      });
+    });
 
     const filename = `${selectedGroup.name.replace(/[^a-zA-Z0-9]/g, '_')}_forecast_history.xlsx`;
-    XLSX.writeFile(workbook, filename);
+    await downloadWorkbook(workbook, filename);
   };
 
   if (step === 'select') {
@@ -370,7 +374,7 @@ export function History({ salesGroups, onTogglePin, isLoading, onNavigate, units
           ← Back to Sales Groups
         </Button>
 
-        <Button className="gap-2" onClick={downloadGroupHistoryExcel} disabled={!allForecastedMonths.length}>
+        <Button className="gap-2" onClick={() => void downloadGroupHistoryExcel()} disabled={!allForecastedMonths.length}>
           <Download size={16} />
           Download Historical Forecasted Sales
         </Button>

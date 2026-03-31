@@ -1,6 +1,7 @@
 import { LayoutDashboard, Upload, TrendingUp, MessageSquare, History, LogOut, LayoutGrid, Star, Menu, StickyNote } from 'lucide-react';
 import { Avatar, AvatarFallback } from './ui/avatar';
 import { useState } from 'react';
+import OffWhiteLogo from '../../imgs/Off white.png';
 
 interface SidebarProps {
   activeSection: string;
@@ -29,10 +30,14 @@ export function Sidebar({ activeSection, onSectionChange, onLogout, isCollapsed,
   };
 
   return (
-    <div className={`sidebar h-screen bg-sidebar text-sidebar-foreground flex flex-col fixed left-0 top-0 transition-all duration-300 ${collapsed ? 'w-20' : 'w-64'}`}>
+    <div className={`sidebar hide-scrollbar h-screen overflow-y-auto overflow-x-hidden bg-sidebar text-sidebar-foreground flex flex-col fixed left-0 top-0 transition-all duration-300 ${collapsed ? 'w-20' : 'w-64'}`}>
       {/* Logo & Collapse Toggle */}
       <div className={`p-5 border-b border-sidebar-border flex items-center ${collapsed ? 'justify-center' : 'justify-between'}`}>
-        <h1 className={`text-sidebar-primary text-2xl tracking-tight ${collapsed ? 'hidden' : ''}`}>Procast</h1>
+        <img
+          src={OffWhiteLogo}
+          alt="Procast logo"
+          className={`h-9 w-auto object-contain ${collapsed ? 'hidden' : ''}`}
+        />
         <button
           className="p-2 rounded hover:bg-sidebar-accent/50 transition-all duration-200 transform hover:scale-110"
           onClick={() => onCollapseChange(!collapsed)}
@@ -97,7 +102,10 @@ export function Sidebar({ activeSection, onSectionChange, onLogout, isCollapsed,
                   onClick={() => toggleFavorite(item.id)}
                   className="ml-2 p-1 rounded hover:bg-sidebar-accent/30 transition-all duration-200 transform hover:scale-110"
                 >
-                  <Star size={16} className={favorites.includes(item.id) ? 'text-sidebar-primary' : 'text-sidebar-foreground/50'} />
+                  <Star
+                    size={16}
+                    className={favorites.includes(item.id) ? 'text-amber-400 fill-amber-400' : 'text-sidebar-foreground/50'}
+                  />
                 </button>
               )}
             </div>
@@ -131,7 +139,7 @@ export function Sidebar({ activeSection, onSectionChange, onLogout, isCollapsed,
         <button
           onClick={onLogout}
           title="Logout"
-          className={`w-full flex items-center rounded-lg text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground shadow-md transition-all duration-200 transform hover:scale-105 ${
+          className={`w-full flex items-center rounded-lg text-sidebar-foreground/80 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground transition-all duration-200 transform hover:scale-105 ${
             collapsed ? 'justify-center px-0 py-3 h-12' : 'gap-3 px-6 py-4'
           }`}
         >

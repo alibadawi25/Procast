@@ -12,7 +12,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, Area, ComposedChart, Brush } from 'recharts';
 import { CategorySlicer } from './CategorySlicer';
 import type { UploadSession } from '../App';
-import * as XLSX from 'xlsx';
+import { Workbook } from 'exceljs';
+import { downloadWorkbook } from '../lib/excel';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
@@ -98,26 +99,47 @@ function mapApiToChartRows(points: ForecastPoint[]): ChartRow[] {
   }));
 }
 
-function exportToExcel(rows: ChartRow[], groupName: string, horizon: string, promotion: number, unitsLabel: string) {
-  const data = rows.map((r) => [
-    r.month,
-    Math.round(r.final).toLocaleString(),
-    Math.round(r.lower).toLocaleString(),
-    Math.round(r.upper).toLocaleString(),
-  ]);
-  const ws = XLSX.utils.aoa_to_sheet([['Date', 'Value', 'Lower', 'Upper'], ...data]);
-  ws['!cols'] = [{ wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
-  const headerStyle = {
-    font: { bold: true, color: { rgb: 'FFFFFF' } },
-    fill: { patternType: 'solid', fgColor: { rgb: '1A3A52' } },
-    alignment: { horizontal: 'center' },
-  };
-  ['A1', 'B1', 'C1', 'D1'].forEach((cell) => {
-    if (ws[cell]) ws[cell].s = headerStyle;
+async function exportToExcel(
+  rows: ChartRow[],
+  groupName: string,
+  horizon: string,
+  promotion: number,
+  unitsLabel: string
+) {
+  const workbook = new Workbook();
+  const worksheet = workbook.addWorksheet('Forecast');
+
+  worksheet.columns = [
+    { header: 'Date', key: 'date', width: 14 },
+    { header: `Value (${unitsLabel})`, key: 'value', width: 14 },
+    { header: `Lower (${unitsLabel})`, key: 'lower', width: 14 },
+    { header: `Upper (${unitsLabel})`, key: 'upper', width: 14 },
+  ];
+
+  rows.forEach((row) => {
+    worksheet.addRow({
+      date: row.month,
+      value: Math.round(row.final).toLocaleString(),
+      lower: Math.round(row.lower).toLocaleString(),
+      upper: Math.round(row.upper).toLocaleString(),
+    });
   });
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Forecast');
-  XLSX.writeFile(wb, `forecast_${groupName}_${horizon}_promo${promotion}.xlsx`);
+
+  const headerRow = worksheet.getRow(1);
+  headerRow.eachCell((cell) => {
+    cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FF1A3A52' },
+    };
+    cell.alignment = { horizontal: 'center' };
+  });
+
+  await downloadWorkbook(
+    workbook,
+    `forecast_${groupName}_${horizon}_promo${promotion}.xlsx`
+  );
 }
 
 function getRankBadge(rank: number) {
@@ -806,15 +828,15 @@ export function Forecast({
         <div className="flex gap-2">
           <Button
             className="gap-2"
-            onClick={() =>
-              exportToExcel(
+            onClick={() => {
+              void exportToExcel(
                 displayedRows,
                 selectedGroup?.name ?? 'group',
                 selectedHorizon,
                 appliedPromotion,
                 unitsLabel
-              )
-            }
+              );
+            }}
             disabled={displayedRows.length === 0}
           >
             <Download size={16} />
