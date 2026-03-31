@@ -14,12 +14,14 @@ import {
 } from "./ui/dialog";
 import { motion } from "framer-motion";
 
-import ChartBarIcon from "@heroicons/react/24/outline/ChartBarIcon";
-import BoltIcon from "@heroicons/react/24/outline/BoltIcon";
-import UsersIcon from "@heroicons/react/24/outline/UsersIcon";
-import ArrowTrendingUpIcon from "@heroicons/react/24/outline/ArrowTrendingUpIcon";
-import ShieldCheckIcon from "@heroicons/react/24/outline/ShieldCheckIcon";
-import LightbulbIcon from "@heroicons/react/24/outline/LightbulbIcon";
+import {
+  ArrowTrendingUpIcon,
+  BoltIcon,
+  ChartBarIcon,
+  LightBulbIcon,
+  ShieldCheckIcon,
+  UsersIcon,
+} from "@heroicons/react/24/outline";
 import BlueLogo from "../../imgs/Blue.png";
 
 export default function Intro({ onLogin }: { onLogin: () => void }) {
@@ -420,7 +422,7 @@ export default function Intro({ onLogin }: { onLogin: () => void }) {
               step: "1",
               title: "Connect your data",
               text: "Connect your historical sales data, inventory records, and market signals in minutes.",
-              icon: <LightbulbIcon className="h-6 w-6 text-primary" />,
+              icon: <LightBulbIcon className="h-6 w-6 text-primary" />,
             },
             {
               step: "2",
