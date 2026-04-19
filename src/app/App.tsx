@@ -10,6 +10,16 @@ import { History } from './components/History';
 import { CollaboratorNotes } from './components/CollaboratorNotes';
 import Intro from './components/Intro';
 import {
+  API_BASE_URL,
+  authFetch,
+  clearStoredAccessToken,
+  fetchCurrentUser,
+  getStoredAccessToken,
+  loginWithPassword,
+  storeAccessToken,
+  type AuthenticatedUser,
+} from './lib/auth';
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -19,7 +29,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from './components/ui/alert-dialog';
-import { Bell, Settings, Sun, Moon, Type, Rows3, DollarSign, Package } from 'lucide-react';
+import { Bell, Settings, Sun, Moon, Type, Rows3, DollarSign, Package, Menu } from 'lucide-react';
+import { useIsMobile } from './components/ui/use-mobile';
 
 interface SalesGroup {
   id: string;
@@ -43,62 +54,14 @@ export interface UploadSession {
   warnings: string[];
 }
 
-const defaultSalesGroups: SalesGroup[] = [
-  {
-    id: '1',
-    name: 'APM 1L',
-    timeSpan: 'Jan 2023 - Dec 2024',
-    lastUpload: 'Not uploaded yet',
-    status: 'needs-data',
-    tags: ['Milk'],
-    isPinned: false,
-  },
-  {
-    id: '2',
-    name: 'APM 1.5L',
-    timeSpan: 'Mar 2023 - Dec 2024',
-    lastUpload: 'Not uploaded yet',
-    status: 'needs-data',
-    tags: ['Milk'],
-    isPinned: false,
-  },
-  {
-    id: '3',
-    name: 'BPM 1L',
-    timeSpan: 'Jun 2023 - Nov 2024',
-    lastUpload: 'Not uploaded yet',
-    status: 'needs-data',
-    tags: ['Milk'],
-    isPinned: false,
-  },
-  {
-    id: '4',
-    name: 'AMJ MS 1L',
-    timeSpan: 'Jan 2023 - Dec 2024',
-    lastUpload: 'Not uploaded yet',
-    status: 'needs-data',
-    tags: ['Juice'],
-    isPinned: false,
-  },
-  {
-    id: '5',
-    name: 'BJ MS 1L',
-    timeSpan: 'Feb 2023 - Dec 2024',
-    lastUpload: 'Not uploaded yet',
-    status: 'needs-data',
-    tags: ['Juice'],
-    isPinned: false,
-  },
-  {
-    id: '6',
-    name: 'Al Marai Butter 500gm',
-    timeSpan: 'Jan 2023 - Dec 2024',
-    lastUpload: 'Not uploaded yet',
-    status: 'needs-data',
-    tags: ['Butter', 'importation'],
-    isPinned: false,
-  },
-];
+interface BackendSalesGroup {
+  id: string;
+  name: string;
+  category: string | null;
+  description: string | null;
+  is_active: boolean;
+  created_at: string;
+}
 
 const SECTION_TO_PATH: Record<string, string> = {
   overview: '/overview',
@@ -121,7 +84,17 @@ const PATH_TO_SECTION: Record<string, string> = {
   '/history': 'history',
 };
 
-const AUTH_STORAGE_KEY = 'procast:isAuthenticated';
+function mapSalesGroup(group: BackendSalesGroup): SalesGroup {
+  return {
+    id: group.id,
+    name: group.name,
+    timeSpan: 'Not set',
+    lastUpload: 'Not uploaded yet',
+    status: 'needs-data',
+    tags: group.category ? [group.category] : [],
+    isPinned: false,
+  };
+}
 
 export default function App() {
   const navigate = useNavigate();
@@ -139,17 +112,13 @@ export default function App() {
   const [currency, setCurrency] = useState<'EGP' | 'USD' | 'EUR'>('EGP');
   const [units, setUnits] = useState<'units' | 'cartons'>('units');
   const [showSettings, setShowSettings] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    try {
-      return localStorage.getItem(AUTH_STORAGE_KEY) === 'true';
-    } catch {
-      return false;
-    }
-  });
-  const [salesGroups, setSalesGroups] = useState<SalesGroup[]>(defaultSalesGroups);
-  const [isSalesGroupsLoading, setIsSalesGroupsLoading] = useState(true);
+  const [authStatus, setAuthStatus] = useState<'checking' | 'authenticated' | 'anonymous'>('checking');
+  const [authUser, setAuthUser] = useState<AuthenticatedUser | null>(null);
+  const [salesGroups, setSalesGroups] = useState<SalesGroup[]>([]);
+  const [isSalesGroupsLoading, setIsSalesGroupsLoading] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [uploadSessionsByGroup, setUploadSessionsByGroup] = useState<Record<string, UploadSession>>({});
+  const isMobile = useIsMobile();
 
   const markSalesGroupsStatus = (
     groupIds: string[],
@@ -167,8 +136,33 @@ export default function App() {
   };
 
   useEffect(() => {
-    const timer = setTimeout(() => setIsSalesGroupsLoading(false), 700);
-    return () => clearTimeout(timer);
+    let isCancelled = false;
+    const token = getStoredAccessToken();
+
+    if (!token) {
+      setAuthStatus('anonymous');
+      return;
+    }
+
+    const restoreSession = async () => {
+      try {
+        const user = await fetchCurrentUser(token);
+        if (isCancelled) return;
+        setAuthUser(user);
+        setAuthStatus('authenticated');
+      } catch {
+        clearStoredAccessToken();
+        if (isCancelled) return;
+        setAuthUser(null);
+        setAuthStatus('anonymous');
+      }
+    };
+
+    void restoreSession();
+
+    return () => {
+      isCancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -181,14 +175,6 @@ export default function App() {
   }, [fontSize]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(AUTH_STORAGE_KEY, String(isAuthenticated));
-    } catch {
-      // ignore storage errors
-    }
-  }, [isAuthenticated]);
-
-  useEffect(() => {
     const mappedSection = PATH_TO_SECTION[location.pathname];
     if (!mappedSection) {
       navigate('/overview', { replace: true });
@@ -196,6 +182,64 @@ export default function App() {
     }
     setActiveSection(mappedSection);
   }, [location.pathname, navigate]);
+
+  useEffect(() => {
+    if (isMobile) {
+      setIsSidebarCollapsed(true);
+    }
+  }, [isMobile]);
+
+  useEffect(() => {
+    if (authStatus !== 'authenticated') {
+      setSalesGroups([]);
+      setIsSalesGroupsLoading(false);
+      return;
+    }
+
+    let isCancelled = false;
+
+    const loadSalesGroups = async () => {
+      setIsSalesGroupsLoading(true);
+
+      try {
+        const response = await authFetch(`${API_BASE_URL}/sales-groups/`);
+
+        if (response.status === 401) {
+          throw new Error('Your session expired. Please sign in again.');
+        }
+
+        if (!response.ok) {
+          throw new Error('Unable to load your sales groups right now.');
+        }
+
+        const payload = (await response.json()) as BackendSalesGroup[];
+        if (isCancelled) return;
+        setSalesGroups(payload.map(mapSalesGroup));
+      } catch (error) {
+        if (isCancelled) return;
+
+        if (error instanceof Error && error.message.includes('session expired')) {
+          clearStoredAccessToken();
+          setAuthUser(null);
+          setAuthStatus('anonymous');
+          navigate('/', { replace: true });
+          return;
+        }
+
+        setSalesGroups([]);
+      } finally {
+        if (!isCancelled) {
+          setIsSalesGroupsLoading(false);
+        }
+      }
+    };
+
+    void loadSalesGroups();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [authStatus, navigate]);
   
   const handleSectionChange = (section: string) => {
     setActiveSection(section);
@@ -225,15 +269,42 @@ export default function App() {
 
   const confirmLogout = () => {
     setShowLogoutDialog(false);
-    setIsAuthenticated(false);
+    clearStoredAccessToken();
+    setAuthUser(null);
+    setUploadSessionsByGroup({});
+    setAuthStatus('anonymous');
+    navigate('/', { replace: true });
   };
 
-  if (!isAuthenticated) {
+  if (authStatus === 'checking') {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background text-foreground">
+        <div className="flex items-center gap-3 rounded-2xl border border-border bg-card px-6 py-4 shadow-sm">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <span className="text-sm text-muted-foreground">Restoring your session...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (authStatus !== 'authenticated') {
     return (
       <Intro
-        onLogin={() => {
-          setIsAuthenticated(true);
-          navigate('/overview', { replace: true });
+        onLogin={async ({ email, password }) => {
+          const { access_token } = await loginWithPassword(email, password);
+
+          try {
+            storeAccessToken(access_token);
+            const user = await fetchCurrentUser(access_token);
+            setAuthUser(user);
+            setAuthStatus('authenticated');
+            navigate('/overview', { replace: true });
+          } catch (error) {
+            clearStoredAccessToken();
+            setAuthUser(null);
+            setAuthStatus('anonymous');
+            throw error;
+          }
         }}
       />
     );
@@ -326,243 +397,270 @@ export default function App() {
   };
 
   return (
-    <div className={`flex h-screen bg-background text-foreground ${densityMode === 'compact' ? 'app-density-compact' : 'app-density-comfortable'}`}>
+    <div className={`flex min-h-[100dvh] bg-background text-foreground ${densityMode === 'compact' ? 'app-density-compact' : 'app-density-comfortable'}`}>
+      {isMobile && !isSidebarCollapsed && (
+        <button
+          type="button"
+          aria-label="Close sidebar"
+          className="fixed inset-0 z-40 bg-black/40"
+          onClick={() => setIsSidebarCollapsed(true)}
+        />
+      )}
       <Sidebar
         activeSection={activeSection}
         onSectionChange={handleSectionChange}
         onLogout={handleLogout}
         isCollapsed={isSidebarCollapsed}
         onCollapseChange={setIsSidebarCollapsed}
+        isMobile={isMobile}
+        user={authStatus === 'authenticated' ? authUser : null}
       />
       
-      <main className={`flex-1 overflow-y-auto relative transition-all duration-300 ${isSidebarCollapsed ? 'ml-20' : 'ml-64'}`}>
-        <div className="p-8 flex flex-col">
+      <main
+        className={`min-w-0 flex-1 overflow-y-auto relative transition-all duration-300 ${
+          isMobile ? 'ml-0' : isSidebarCollapsed ? 'ml-20' : 'ml-64'
+        }`}
+      >
+        <div className="p-4 sm:p-6 lg:p-8 flex flex-col">
           {/* Top bar with notifications and settings */}
-          <div className="flex justify-end mb-4 gap-2">
-            {/* Notification Bell */}
-            <div className="relative">
+          <div className="flex items-center justify-between mb-4 gap-2">
+            {isMobile ? (
               <button
-                className={`p-2 rounded-full transition-colors ${
-                  theme === 'light'
-                    ? 'bg-primary text-primary-foreground hover:bg-primary/90'
-                    : 'bg-[#1a3a52] text-white hover:bg-[#1a3a52]/90'
-                }`}
-                onClick={() => setShowNotifications(!showNotifications)}
+                type="button"
+                className="p-2 rounded-full bg-sidebar text-sidebar-foreground hover:bg-sidebar-accent/60 transition-colors"
+                onClick={() => setIsSidebarCollapsed(false)}
+                aria-label="Open sidebar"
               >
-                <Bell size={20} />
+                <Menu size={20} />
               </button>
-              {showNotifications && (
-                
-                <div className="absolute right-0 mt-2 w-80 bg-background border border-border rounded-lg shadow-lg z-50 transform transition duration-200 ease-out scale-95 opacity-0 animate-scaleIn">
-                  <ul>
-                    {notifications.length === 0 ? (
-                      <li className="p-4 text-sm text-sidebar-foreground-255">No notifications</li>
-                    ) : (
-                      notifications.map((notif, idx) => (
-                        <li
-                          key={idx}
-                          className="px-4 py-3 border-b last:border-b-0 hover:bg-sidebar-accent/10 cursor-pointer transition-colors"
-                        >
-                          {notif}
-                        </li>
-                      ))
-                    )}
-                  </ul>
-                </div>
-              )}
-            </div>
-
-            {/* Settings Button */}
-            <div className="relative">
-              <button
-                className={`p-2 rounded-full transition-colors ${
-                  theme === 'light'
-                    ? 'bg-primary text-primary-foreground hover:bg-primary/90'
-                    : 'bg-[#1a3a52] text-white hover:bg-[#1a3a52]/90'
-                }`}
-                onClick={() => setShowSettings(!showSettings)}
-              >
-                <Settings size={20} />
-              </button>
-              {showSettings && (
-                <div className="absolute right-0 mt-2 w-80 bg-popover text-popover-foreground border border-border rounded-xl shadow-2xl z-50 p-4 space-y-4 transform transition duration-200 ease-out scale-95 opacity-0 animate-scaleIn">
-                  <div className="pb-2 border-b border-border">
-                    <h4 className="text-sm font-semibold">Display Settings</h4>
-                    <p className="text-xs text-muted-foreground mt-1">Customize appearance and readability</p>
+            ) : (
+              <span />
+            )}
+            <div className="flex items-center gap-2">
+              {/* Notification Bell */}
+              <div className="relative">
+                <button
+                  className={`p-2 rounded-full transition-colors ${
+                    theme === 'light'
+                      ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+                      : 'bg-[#1a3a52] text-white hover:bg-[#1a3a52]/90'
+                  }`}
+                  onClick={() => setShowNotifications(!showNotifications)}
+                >
+                  <Bell size={20} />
+                </button>
+                {showNotifications && (
+                  <div className="absolute right-0 mt-2 w-80 bg-background border border-border rounded-lg shadow-lg z-50 transform transition duration-200 ease-out scale-95 opacity-0 animate-scaleIn">
+                    <ul>
+                      {notifications.length === 0 ? (
+                        <li className="p-4 text-sm text-sidebar-foreground-255">No notifications</li>
+                      ) : (
+                        notifications.map((notif, idx) => (
+                          <li
+                            key={idx}
+                            className="px-4 py-3 border-b last:border-b-0 hover:bg-sidebar-accent/10 cursor-pointer transition-colors"
+                          >
+                            {notif}
+                          </li>
+                        ))
+                      )}
+                    </ul>
                   </div>
+                )}
+              </div>
 
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Sun size={14} />
-                      <span>Theme</span>
+              {/* Settings Button */}
+              <div className="relative">
+                <button
+                  className={`p-2 rounded-full transition-colors ${
+                    theme === 'light'
+                      ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+                      : 'bg-[#1a3a52] text-white hover:bg-[#1a3a52]/90'
+                  }`}
+                  onClick={() => setShowSettings(!showSettings)}
+                >
+                  <Settings size={20} />
+                </button>
+                {showSettings && (
+                  <div className="absolute right-0 mt-2 w-80 bg-popover text-popover-foreground border border-border rounded-xl shadow-2xl z-50 p-4 space-y-4 transform transition duration-200 ease-out scale-95 opacity-0 animate-scaleIn">
+                    <div className="pb-2 border-b border-border">
+                      <h4 className="text-sm font-semibold">Display Settings</h4>
+                      <p className="text-xs text-muted-foreground mt-1">Customize appearance and readability</p>
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        className={`px-3 py-2 rounded-lg border transition-colors text-sm flex items-center justify-center gap-2 ${
-                          theme === 'light'
-                            ? 'bg-primary text-primary-foreground border-primary'
-                            : 'bg-card text-card-foreground border-border hover:bg-accent/20'
-                        }`}
-                        onClick={() => setTheme('light')}
-                      >
+
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Sun size={14} />
-                        Light
-                      </button>
-                      <button
-                        className={`px-3 py-2 rounded-lg border transition-colors text-sm flex items-center justify-center gap-2 ${
-                          theme === 'dark'
-                            ? 'bg-primary text-primary-foreground border-primary'
-                            : 'bg-card text-card-foreground border-border hover:bg-accent/20'
-                        }`}
-                        onClick={() => setTheme('dark')}
-                      >
-                        <Moon size={14} />
-                        Dark
-                      </button>
+                        <span>Theme</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          className={`px-3 py-2 rounded-lg border transition-colors text-sm flex items-center justify-center gap-2 ${
+                            theme === 'light'
+                              ? 'bg-primary text-primary-foreground border-primary'
+                              : 'bg-card text-card-foreground border-border hover:bg-accent/20'
+                          }`}
+                          onClick={() => setTheme('light')}
+                        >
+                          <Sun size={14} />
+                          Light
+                        </button>
+                        <button
+                          className={`px-3 py-2 rounded-lg border transition-colors text-sm flex items-center justify-center gap-2 ${
+                            theme === 'dark'
+                              ? 'bg-primary text-primary-foreground border-primary'
+                              : 'bg-card text-card-foreground border-border hover:bg-accent/20'
+                          }`}
+                          onClick={() => setTheme('dark')}
+                        >
+                          <Moon size={14} />
+                          Dark
+                        </button>
+                      </div>
                     </div>
-                  </div>
 
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Type size={14} />
-                      <span>Font Size</span>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Type size={14} />
+                        <span>Font Size</span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <button
+                          className={`px-3 py-2 rounded-lg border transition-colors text-sm ${
+                            fontSize === 'sm'
+                              ? 'bg-primary text-primary-foreground border-primary'
+                              : 'bg-card text-card-foreground border-border hover:bg-accent/20'
+                          }`}
+                          onClick={() => setFontSize('sm')}
+                        >
+                          Small
+                        </button>
+                        <button
+                          className={`px-3 py-2 rounded-lg border transition-colors text-sm ${
+                            fontSize === 'md'
+                              ? 'bg-primary text-primary-foreground border-primary'
+                              : 'bg-card text-card-foreground border-border hover:bg-accent/20'
+                          }`}
+                          onClick={() => setFontSize('md')}
+                        >
+                          Medium
+                        </button>
+                        <button
+                          className={`px-3 py-2 rounded-lg border transition-colors text-sm ${
+                            fontSize === 'lg'
+                              ? 'bg-primary text-primary-foreground border-primary'
+                              : 'bg-card text-card-foreground border-border hover:bg-accent/20'
+                          }`}
+                          onClick={() => setFontSize('lg')}
+                        >
+                          Large
+                        </button>
+                      </div>
                     </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      <button
-                        className={`px-3 py-2 rounded-lg border transition-colors text-sm ${
-                          fontSize === 'sm'
-                            ? 'bg-primary text-primary-foreground border-primary'
-                            : 'bg-card text-card-foreground border-border hover:bg-accent/20'
-                        }`}
-                        onClick={() => setFontSize('sm')}
-                      >
-                        Small
-                      </button>
-                      <button
-                        className={`px-3 py-2 rounded-lg border transition-colors text-sm ${
-                          fontSize === 'md'
-                            ? 'bg-primary text-primary-foreground border-primary'
-                            : 'bg-card text-card-foreground border-border hover:bg-accent/20'
-                        }`}
-                        onClick={() => setFontSize('md')}
-                      >
-                        Medium
-                      </button>
-                      <button
-                        className={`px-3 py-2 rounded-lg border transition-colors text-sm ${
-                          fontSize === 'lg'
-                            ? 'bg-primary text-primary-foreground border-primary'
-                            : 'bg-card text-card-foreground border-border hover:bg-accent/20'
-                        }`}
-                        onClick={() => setFontSize('lg')}
-                      >
-                        Large
-                      </button>
-                    </div>
-                  </div>
 
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Rows3 size={14} />
-                      <span>Density</span>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Rows3 size={14} />
+                        <span>Density</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          className={`px-3 py-2 rounded-lg border transition-colors text-sm ${
+                            densityMode === 'comfortable'
+                              ? 'bg-primary text-primary-foreground border-primary'
+                              : 'bg-card text-card-foreground border-border hover:bg-accent/20'
+                          }`}
+                          onClick={() => setDensityMode('comfortable')}
+                        >
+                          Comfortable
+                        </button>
+                        <button
+                          className={`px-3 py-2 rounded-lg border transition-colors text-sm ${
+                            densityMode === 'compact'
+                              ? 'bg-primary text-primary-foreground border-primary'
+                              : 'bg-card text-card-foreground border-border hover:bg-accent/20'
+                          }`}
+                          onClick={() => setDensityMode('compact')}
+                        >
+                          Compact
+                        </button>
+                      </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        className={`px-3 py-2 rounded-lg border transition-colors text-sm ${
-                          densityMode === 'comfortable'
-                            ? 'bg-primary text-primary-foreground border-primary'
-                            : 'bg-card text-card-foreground border-border hover:bg-accent/20'
-                        }`}
-                        onClick={() => setDensityMode('comfortable')}
-                      >
-                        Comfortable
-                      </button>
-                      <button
-                        className={`px-3 py-2 rounded-lg border transition-colors text-sm ${
-                          densityMode === 'compact'
-                            ? 'bg-primary text-primary-foreground border-primary'
-                            : 'bg-card text-card-foreground border-border hover:bg-accent/20'
-                        }`}
-                        onClick={() => setDensityMode('compact')}
-                      >
-                        Compact
-                      </button>
-                    </div>
-                  </div>
 
-                  <div className="border-t border-border pt-3">
-                    <p className="text-xs text-muted-foreground">Formatting Preferences</p>
-                  </div>
+                    <div className="border-t border-border pt-3">
+                      <p className="text-xs text-muted-foreground">Formatting Preferences</p>
+                    </div>
 
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <DollarSign size={14} />
-                      <span>Currency</span>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <DollarSign size={14} />
+                        <span>Currency</span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <button
+                          className={`px-3 py-2 rounded-lg border transition-colors text-sm ${
+                            currency === 'EGP'
+                              ? 'bg-primary text-primary-foreground border-primary'
+                              : 'bg-card text-card-foreground border-border hover:bg-accent/20'
+                          }`}
+                          onClick={() => setCurrency('EGP')}
+                        >
+                          EGP
+                        </button>
+                        <button
+                          className={`px-3 py-2 rounded-lg border transition-colors text-sm ${
+                            currency === 'USD'
+                              ? 'bg-primary text-primary-foreground border-primary'
+                              : 'bg-card text-card-foreground border-border hover:bg-accent/20'
+                          }`}
+                          onClick={() => setCurrency('USD')}
+                        >
+                          USD
+                        </button>
+                        <button
+                          className={`px-3 py-2 rounded-lg border transition-colors text-sm ${
+                            currency === 'EUR'
+                              ? 'bg-primary text-primary-foreground border-primary'
+                              : 'bg-card text-card-foreground border-border hover:bg-accent/20'
+                          }`}
+                          onClick={() => setCurrency('EUR')}
+                        >
+                          EUR
+                        </button>
+                      </div>
                     </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      <button
-                        className={`px-3 py-2 rounded-lg border transition-colors text-sm ${
-                          currency === 'EGP'
-                            ? 'bg-primary text-primary-foreground border-primary'
-                            : 'bg-card text-card-foreground border-border hover:bg-accent/20'
-                        }`}
-                        onClick={() => setCurrency('EGP')}
-                      >
-                        EGP
-                      </button>
-                      <button
-                        className={`px-3 py-2 rounded-lg border transition-colors text-sm ${
-                          currency === 'USD'
-                            ? 'bg-primary text-primary-foreground border-primary'
-                            : 'bg-card text-card-foreground border-border hover:bg-accent/20'
-                        }`}
-                        onClick={() => setCurrency('USD')}
-                      >
-                        USD
-                      </button>
-                      <button
-                        className={`px-3 py-2 rounded-lg border transition-colors text-sm ${
-                          currency === 'EUR'
-                            ? 'bg-primary text-primary-foreground border-primary'
-                            : 'bg-card text-card-foreground border-border hover:bg-accent/20'
-                        }`}
-                        onClick={() => setCurrency('EUR')}
-                      >
-                        EUR
-                      </button>
-                    </div>
-                  </div>
 
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Package size={14} />
-                      <span>Volume</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        className={`px-3 py-2 rounded-lg border transition-colors text-sm ${
-                          units === 'units'
-                            ? 'bg-primary text-primary-foreground border-primary'
-                            : 'bg-card text-card-foreground border-border hover:bg-accent/20'
-                        }`}
-                        onClick={() => setUnits('units')}
-                      >
-                        Units
-                      </button>
-                      <button
-                        className={`px-3 py-2 rounded-lg border transition-colors text-sm ${
-                          units === 'cartons'
-                            ? 'bg-primary text-primary-foreground border-primary'
-                            : 'bg-card text-card-foreground border-border hover:bg-accent/20'
-                        }`}
-                        onClick={() => setUnits('cartons')}
-                      >
-                        Cartons
-                      </button>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Package size={14} />
+                        <span>Volume</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          className={`px-3 py-2 rounded-lg border transition-colors text-sm ${
+                            units === 'units'
+                              ? 'bg-primary text-primary-foreground border-primary'
+                              : 'bg-card text-card-foreground border-border hover:bg-accent/20'
+                          }`}
+                          onClick={() => setUnits('units')}
+                        >
+                          Units
+                        </button>
+                        <button
+                          className={`px-3 py-2 rounded-lg border transition-colors text-sm ${
+                            units === 'cartons'
+                              ? 'bg-primary text-primary-foreground border-primary'
+                              : 'bg-card text-card-foreground border-border hover:bg-accent/20'
+                          }`}
+                          onClick={() => setUnits('cartons')}
+                        >
+                          Cartons
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
           {renderContent()}

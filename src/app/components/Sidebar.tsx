@@ -9,9 +9,22 @@ interface SidebarProps {
   onLogout: () => void;
   isCollapsed: boolean;
   onCollapseChange: (collapsed: boolean) => void;
+  isMobile?: boolean;
+  user?: {
+    full_name: string;
+    email: string;
+  } | null;
 }
 
-export function Sidebar({ activeSection, onSectionChange, onLogout, isCollapsed, onCollapseChange }: SidebarProps) {
+export function Sidebar({
+  activeSection,
+  onSectionChange,
+  onLogout,
+  isCollapsed,
+  onCollapseChange,
+  isMobile = false,
+  user = null,
+}: SidebarProps) {
   const collapsed = isCollapsed;
   const [favorites, setFavorites] = useState<string[]>([]);
 
@@ -29,8 +42,34 @@ export function Sidebar({ activeSection, onSectionChange, onLogout, isCollapsed,
     setFavorites(prev => prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id]);
   };
 
+  const handleNavigate = (section: string) => {
+    onSectionChange(section);
+    if (isMobile) {
+      onCollapseChange(true);
+    }
+  };
+
+  const displayName = user?.full_name?.trim() || 'Procast User';
+  const displayEmail = user?.email?.trim() || 'user@procast.app';
+  const avatarFallback = displayName
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .join('') || 'PU';
+
   return (
-    <div className={`sidebar hide-scrollbar h-screen overflow-y-auto overflow-x-hidden bg-sidebar text-sidebar-foreground flex flex-col fixed left-0 top-0 transition-all duration-300 ${collapsed ? 'w-20' : 'w-64'}`}>
+    <div
+      className={`sidebar hide-scrollbar h-[100dvh] overflow-y-auto overflow-x-hidden bg-sidebar text-sidebar-foreground flex flex-col fixed left-0 top-0 z-50 transition-all duration-300 ${
+        isMobile
+          ? collapsed
+            ? '-translate-x-full w-64'
+            : 'translate-x-0 w-64'
+          : collapsed
+            ? 'w-20'
+            : 'w-64'
+      }`}
+    >
       {/* Logo & Collapse Toggle */}
       <div className={`p-5 border-b border-sidebar-border flex items-center ${collapsed ? 'justify-center' : 'justify-between'}`}>
         <img
@@ -58,7 +97,7 @@ export function Sidebar({ activeSection, onSectionChange, onLogout, isCollapsed,
             return (
               <button
                 key={item.id}
-                onClick={() => onSectionChange(item.id)}
+                onClick={() => handleNavigate(item.id)}
                 className="w-full flex items-center gap-4 px-4 py-3 rounded-lg text-sidebar-primary bg-sidebar-accent transition-all duration-200 transform hover:scale-105 hover:shadow-sm"
               >
                 <Icon size={20} />
@@ -78,7 +117,7 @@ export function Sidebar({ activeSection, onSectionChange, onLogout, isCollapsed,
           return (
             <div key={item.id} className={`flex items-center relative group ${collapsed ? 'justify-center' : 'justify-between'}`}>
               <button
-                onClick={() => onSectionChange(item.id)}
+                onClick={() => handleNavigate(item.id)}
                 title={collapsed ? item.label : undefined}
                 className={`flex-1 flex items-center gap-4 px-4 py-4 rounded-lg transition-all duration-200 transform ${
                   isActive
@@ -150,13 +189,13 @@ export function Sidebar({ activeSection, onSectionChange, onLogout, isCollapsed,
         <div className={`flex items-center px-4 py-2 ${collapsed ? 'justify-center' : 'gap-3'}`}>
           <Avatar className="h-10 w-10">
             <AvatarFallback className="bg-sidebar-primary text-sidebar-primary-foreground">
-              YE
+              {avatarFallback}
             </AvatarFallback>
           </Avatar>
           {!collapsed && (
             <div className="flex-1 min-w-0">
-              <p className="text-sm truncate">Yussef Ehab</p>
-              <p className="text-xs text-sidebar-foreground/60 truncate">yussef@ProCast.org</p>
+              <p className="text-sm truncate">{displayName}</p>
+              <p className="text-xs text-sidebar-foreground/60 truncate">{displayEmail}</p>
             </div>
           )}
         </div>

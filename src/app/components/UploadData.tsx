@@ -23,6 +23,7 @@ import {
   AlertDialogTitle,
 } from './ui/alert-dialog';
 import type { UploadSession } from '../App';
+import { API_BASE_URL, authFetch } from '../lib/auth';
 
 interface SalesGroup {
   id: string;
@@ -67,13 +68,21 @@ interface UploadResponse {
   date_column_mode: string;
 }
 
+interface BackendSalesGroupResponse {
+  id: string;
+  company_id: string;
+  name: string;
+  category: string | null;
+  description: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
 interface DragItem {
   id: string;
   originalIndex: number;
   hasMoved?: boolean;
 }
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000';
 
 // Generate realistic mock data for each sales group
 const generateMockData = (groupName: string): { date: string; sales: number; price: number }[] => {
@@ -142,7 +151,14 @@ export function UploadData({ salesGroups: propSalesGroups, onReorder, onTogglePi
   const [groupTags, setGroupTags] = useState('');
   const [localSalesGroups, setLocalSalesGroups] = useState<SalesGroup[]>(propSalesGroups);
   const [groupToDelete, setGroupToDelete] = useState<SalesGroup | null>(null);
+  const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set());
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [isBulkDeleteOpen, setIsBulkDeleteOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [isSavingGroup, setIsSavingGroup] = useState(false);
+  const [groupSaveError, setGroupSaveError] = useState<string | null>(null);
+  const [isDeletingGroup, setIsDeletingGroup] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const latestGroupsRef = useRef<SalesGroup[]>(propSalesGroups);
   const qualityScore = useMemo(() => {
@@ -171,6 +187,37 @@ export function UploadData({ salesGroups: propSalesGroups, onReorder, onTogglePi
     latestGroupsRef.current = localSalesGroups;
   }, [localSalesGroups]);
 
+  useEffect(() => {
+    setSelectedGroupIds((prev) => {
+      const next = new Set<string>();
+      const validIds = new Set(localSalesGroups.map((group) => group.id));
+      prev.forEach((id) => {
+        if (validIds.has(id)) next.add(id);
+      });
+      return next;
+    });
+  }, [localSalesGroups]);
+
+  useEffect(() => {
+    if (!selectionMode) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      const isCard = target.closest('[data-sales-group-card]');
+      if (isCard) return;
+      setSelectionMode(false);
+      clearSelection();
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [selectionMode]);
+
+  useEffect(() => {
+    if (selectionMode && selectedGroupIds.size === 0) {
+      setSelectionMode(false);
+    }
+  }, [selectionMode, selectedGroupIds]);
+
   const filteredGroups = localSalesGroups.filter(group => {
     const matchesSearch = group.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       group.tags.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -184,6 +231,14 @@ export function UploadData({ salesGroups: propSalesGroups, onReorder, onTogglePi
     () => Array.from(new Set(localSalesGroups.flatMap((group) => group.tags))).sort(),
     [localSalesGroups]
   );
+
+  const selectedGroups = useMemo(
+    () => localSalesGroups.filter((group) => selectedGroupIds.has(group.id)),
+    [localSalesGroups, selectedGroupIds]
+  );
+
+  const hasSelection = selectedGroupIds.size > 0;
+  const hasUnpinnedSelected = selectedGroups.some((group) => !group.isPinned);
 
   const indexById = useMemo(() => {
     const map = new Map<string, number>();
@@ -212,6 +267,7 @@ export function UploadData({ salesGroups: propSalesGroups, onReorder, onTogglePi
     setValidationResult(null);
     setUploadResult(null);
     setUploadError(null);
+    setGroupSaveError(null);
     setSelectedFile(null);
     setStep('upload');
   };
@@ -224,11 +280,12 @@ export function UploadData({ salesGroups: propSalesGroups, onReorder, onTogglePi
     setValidationResult(null);
     setUploadResult(null);
     setUploadError(null);
+    setGroupSaveError(null);
     setSelectedFile(null);
     setStep('upload');
   };
 
-  const handleSaveGroup = () => {
+  const handleSaveGroup = async () => {
     const name = groupName.trim();
     if (!name) return;
 
@@ -238,33 +295,134 @@ export function UploadData({ salesGroups: propSalesGroups, onReorder, onTogglePi
       .filter(Boolean);
 
     if (selectedGroup) {
-      const updatedGroups = localSalesGroups.map((group) =>
-        group.id === selectedGroup.id
-          ? {
-              ...group,
+      setIsSavingGroup(true);
+      setGroupSaveError(null);
+
+      try {
+        const response = await authFetch(
+          `${API_BASE_URL}/sales-groups/?sales_group_id=${encodeURIComponent(selectedGroup.id)}`,
+          {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
               name,
-              tags,
+              category: tags[0] ?? null,
+              description: groupDescription.trim() || null,
+            }),
+          }
+        );
+
+        if (response.status === 401) {
+          throw new Error('Your session expired. Please sign in again.');
+        }
+
+        if (!response.ok) {
+          let message = 'Could not update sales group.';
+          try {
+            const payload = (await response.json()) as { detail?: string };
+            if (payload?.detail) {
+              message = payload.detail;
             }
-          : group
-      );
-      setLocalSalesGroups(updatedGroups);
-      onReorder(updatedGroups);
-      setSelectedGroup((prev) => (prev ? { ...prev, name, tags } : prev));
+          } catch {
+            const fallback = await response.text();
+            if (fallback) {
+              message = fallback;
+            }
+          }
+          throw new Error(message);
+        }
+
+        const payload = (await response.json()) as BackendSalesGroupResponse;
+        const updatedGroups = localSalesGroups.map((group) =>
+          group.id === selectedGroup.id
+            ? {
+                ...group,
+                id: payload.id,
+                name: payload.name,
+                tags,
+              }
+            : group
+        );
+        setLocalSalesGroups(updatedGroups);
+        onReorder(updatedGroups);
+        setSelectedGroup((prev) =>
+          prev
+            ? {
+                ...prev,
+                id: payload.id,
+                name: payload.name,
+                tags,
+              }
+            : prev
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Could not update sales group.';
+        setGroupSaveError(message);
+      } finally {
+        setIsSavingGroup(false);
+      }
       return;
     }
 
-    const newGroup: SalesGroup = {
-      id: `sg-${Date.now()}`,
-      name,
-      timeSpan: 'Not set',
-      lastUpload: 'Not uploaded yet',
-      status: 'needs-data',
-      tags,
-    };
-    const nextGroups = [newGroup, ...localSalesGroups];
-    setLocalSalesGroups(nextGroups);
-    onReorder(nextGroups);
-    setSelectedGroup(newGroup);
+    setIsSavingGroup(true);
+    setGroupSaveError(null);
+
+    try {
+      const response = await authFetch(`${API_BASE_URL}/sales-groups/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name,
+          category: tags[0] ?? null,
+          description: groupDescription.trim() || null,
+          is_active: true,
+        }),
+      });
+
+      if (response.status === 401) {
+        throw new Error('Your session expired. Please sign in again.');
+      }
+
+      if (!response.ok) {
+        let message = 'Could not create sales group.';
+        try {
+          const payload = (await response.json()) as { detail?: string };
+          if (payload?.detail) {
+            message = payload.detail;
+          }
+        } catch {
+          const fallback = await response.text();
+          if (fallback) {
+            message = fallback;
+          }
+        }
+        throw new Error(message);
+      }
+
+      const payload = (await response.json()) as BackendSalesGroupResponse;
+      const newGroup: SalesGroup = {
+        id: payload.id,
+        name: payload.name,
+        timeSpan: 'Not set',
+        lastUpload: 'Not uploaded yet',
+        status: 'needs-data',
+        tags,
+      };
+
+      const nextGroups = [newGroup, ...localSalesGroups];
+      setLocalSalesGroups(nextGroups);
+      onReorder(nextGroups);
+      setSelectedGroup(newGroup);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not create sales group.';
+      setGroupSaveError(message);
+    } finally {
+      setIsSavingGroup(false);
+    }
   };
 
   const handleFileUpload = async (): Promise<boolean> => {
@@ -404,13 +562,118 @@ export function UploadData({ salesGroups: propSalesGroups, onReorder, onTogglePi
     validateFile(file);
   };
 
-  const handleDeleteGroup = () => {
-    if (groupToDelete) {
+  const deleteSalesGroups = async (groupIds: string[]) => {
+    for (const groupId of groupIds) {
+      const response = await authFetch(
+        `${API_BASE_URL}/sales-groups/?sales_group_id=${encodeURIComponent(groupId)}`,
+        {
+          method: 'DELETE',
+        }
+      );
+
+      if (response.status === 401) {
+        throw new Error('Your session expired. Please sign in again.');
+      }
+
+      if (!response.ok) {
+        let message = 'Could not delete sales group.';
+        try {
+          const payload = (await response.json()) as { detail?: string };
+          if (payload?.detail) {
+            message = payload.detail;
+          }
+        } catch {
+          const fallback = await response.text();
+          if (fallback) {
+            message = fallback;
+          }
+        }
+        throw new Error(message);
+      }
+    }
+  };
+
+  const handleDeleteGroup = async () => {
+    if (!groupToDelete) return;
+
+    setIsDeletingGroup(true);
+    setDeleteError(null);
+
+    try {
+      await deleteSalesGroups([groupToDelete.id]);
       const newGroups = localSalesGroups.filter(group => group.id !== groupToDelete.id);
       setLocalSalesGroups(newGroups);
       onReorder(newGroups);
       setGroupToDelete(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not delete sales group.';
+      setDeleteError(message);
+    } finally {
+      setIsDeletingGroup(false);
     }
+  };
+
+  const toggleSelectGroup = (groupId: string) => {
+    setSelectedGroupIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupId)) {
+        next.delete(groupId);
+      } else {
+        next.add(groupId);
+      }
+      return next;
+    });
+  };
+
+  const clearSelection = () => {
+    setSelectedGroupIds(new Set());
+  };
+
+  const selectAllFiltered = () => {
+    setSelectedGroupIds(new Set(filteredGroups.map((group) => group.id)));
+  };
+
+  const handleBulkPin = () => {
+    if (!hasSelection) return;
+    const shouldPin = hasUnpinnedSelected;
+    const updatedGroups = localSalesGroups.map((group) =>
+      selectedGroupIds.has(group.id) ? { ...group, isPinned: shouldPin } : group
+    );
+    setLocalSalesGroups(updatedGroups);
+    onReorder(updatedGroups);
+  };
+
+  const handleBulkExport = () => {
+    selectedGroups.forEach((group) => {
+      void exportToExcel(group);
+    });
+  };
+
+  const handleBulkDelete = async () => {
+    if (!hasSelection) return;
+
+    setIsDeletingGroup(true);
+    setDeleteError(null);
+
+    try {
+      const idsToDelete = Array.from(selectedGroupIds);
+      await deleteSalesGroups(idsToDelete);
+      const updatedGroups = localSalesGroups.filter((group) => !selectedGroupIds.has(group.id));
+      setLocalSalesGroups(updatedGroups);
+      onReorder(updatedGroups);
+      clearSelection();
+      setIsBulkDeleteOpen(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not delete sales groups.';
+      setDeleteError(message);
+    } finally {
+      setIsDeletingGroup(false);
+    }
+  };
+
+  const enterSelectionMode = (groupId: string) => {
+    setSelectionMode(true);
+    setSelectedGroupIds(new Set([groupId]));
   };
 
   const getStatusColor = (status: string) => {
@@ -477,6 +740,38 @@ export function UploadData({ salesGroups: propSalesGroups, onReorder, onTogglePi
           </Button>
         </div>
 
+        {selectionMode && hasSelection && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-3">
+            <div className="text-sm">
+              <span className="font-medium">{selectedGroupIds.size}</span> selected
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button variant="outline" size="sm" onClick={selectAllFiltered}>
+                Select all
+              </Button>
+              <Button variant="ghost" size="sm" onClick={clearSelection}>
+                Clear
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleBulkPin}>
+                {hasUnpinnedSelected ? 'Pin selected' : 'Unpin selected'}
+              </Button>
+              <Button variant="outline" size="sm" onClick={handleBulkExport} className="gap-2">
+                <Download size={14} />
+                Export
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setIsBulkDeleteOpen(true)}
+                className="gap-2"
+              >
+                <Trash2 size={14} />
+                Delete
+              </Button>
+            </div>
+          </div>
+        )}
+
         {isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {Array.from({ length: 6 }).map((_, index) => (
@@ -525,7 +820,7 @@ export function UploadData({ salesGroups: propSalesGroups, onReorder, onTogglePi
           <>
             {/* Sales Groups Grid */}
             <DndProvider backend={HTML5Backend}>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 ${selectionMode ? 'selection-mode' : ''}`}>
                 {filteredGroups.map((group) => (
                   <DraggableCard
                     key={group.id}
@@ -537,6 +832,10 @@ export function UploadData({ salesGroups: propSalesGroups, onReorder, onTogglePi
                     onDeleteGroup={setGroupToDelete}
                     onTogglePin={onTogglePin}
                     getStatusColor={getStatusColor}
+                    isSelected={selectedGroupIds.has(group.id)}
+                    onToggleSelect={toggleSelectGroup}
+                    selectionMode={selectionMode}
+                    onEnterSelectionMode={enterSelectionMode}
                   />
                 ))}
               </div>
@@ -551,13 +850,42 @@ export function UploadData({ salesGroups: propSalesGroups, onReorder, onTogglePi
                     Are you sure you want to delete "{groupToDelete?.name}"? This action cannot be undone and all associated data will be removed.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
+                {deleteError ? (
+                  <p className="text-sm text-destructive">{deleteError}</p>
+                ) : null}
                 <AlertDialogFooter>
-                  <AlertDialogCancel onClick={() => setGroupToDelete(null)}>Cancel</AlertDialogCancel>
+                  <AlertDialogCancel onClick={() => setGroupToDelete(null)} disabled={isDeletingGroup}>Cancel</AlertDialogCancel>
                   <AlertDialogAction
-                    onClick={handleDeleteGroup}
+                    onClick={() => void handleDeleteGroup()}
                     className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    disabled={isDeletingGroup}
                   >
-                    Delete
+                    {isDeletingGroup ? 'Deleting...' : 'Delete'}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+
+            {/* Bulk Delete Confirmation */}
+            <AlertDialog open={isBulkDeleteOpen} onOpenChange={setIsBulkDeleteOpen}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete selected sales groups</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    You are about to delete {selectedGroupIds.size} sales groups. This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                {deleteError ? (
+                  <p className="text-sm text-destructive">{deleteError}</p>
+                ) : null}
+                <AlertDialogFooter>
+                  <AlertDialogCancel onClick={() => setIsBulkDeleteOpen(false)} disabled={isDeletingGroup}>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => void handleBulkDelete()}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    disabled={isDeletingGroup}
+                  >
+                    {isDeletingGroup ? 'Deleting...' : 'Delete Selected'}
                   </AlertDialogAction>
                 </AlertDialogFooter>
               </AlertDialogContent>
@@ -617,9 +945,14 @@ export function UploadData({ salesGroups: propSalesGroups, onReorder, onTogglePi
             {selectedGroup ? 'Upload new data to existing sales group' : 'Configure and upload data for new sales group'}
           </p>
         </div>
-        <Button onClick={handleSaveGroup} disabled={!groupName.trim()}>
-          Save Sales Group
-        </Button>
+        <div className="flex flex-col items-end gap-2">
+          <Button onClick={() => void handleSaveGroup()} disabled={!groupName.trim() || isSavingGroup}>
+            {isSavingGroup ? 'Saving...' : 'Save Sales Group'}
+          </Button>
+          {groupSaveError ? (
+            <p className="max-w-xs text-right text-sm text-destructive">{groupSaveError}</p>
+          ) : null}
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/30 px-4 py-3">
@@ -902,6 +1235,10 @@ interface DraggableCardProps {
   onDeleteGroup: (group: SalesGroup) => void;
   onTogglePin: (groupId: string) => void;
   getStatusColor: (status: string) => string;
+  isSelected: boolean;
+  onToggleSelect: (groupId: string) => void;
+  selectionMode: boolean;
+  onEnterSelectionMode: (groupId: string) => void;
 }
 
 const DraggableCard = memo(function DraggableCard({
@@ -913,9 +1250,16 @@ const DraggableCard = memo(function DraggableCard({
   onDeleteGroup,
   onTogglePin,
   getStatusColor,
+  isSelected,
+  onToggleSelect,
+  selectionMode,
+  onEnterSelectionMode,
 }: DraggableCardProps) {
   const ref = useRef<HTMLDivElement>(null);
   const dragHandleRef = useRef<HTMLButtonElement>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressTriggeredRef = useRef(false);
+  const pressStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const [{ isDragging }, drag] = useDrag({
     type: 'CARD',
@@ -959,11 +1303,60 @@ const DraggableCard = memo(function DraggableCard({
   drag(dragHandleRef);
   drop(ref);
 
+  const startLongPress = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (selectionMode) return;
+    const target = event.target as HTMLElement;
+    if (target.closest('button') || target.closest('input') || target.closest('label')) return;
+    longPressTriggeredRef.current = false;
+    pressStartRef.current = { x: event.clientX, y: event.clientY };
+    longPressTimerRef.current = setTimeout(() => {
+      longPressTriggeredRef.current = true;
+      onEnterSelectionMode(group.id);
+    }, 420);
+  };
+
+  const clearLongPress = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!pressStartRef.current || !longPressTimerRef.current) return;
+    const dx = event.clientX - pressStartRef.current.x;
+    const dy = event.clientY - pressStartRef.current.y;
+    if (Math.hypot(dx, dy) > 8) {
+      clearLongPress();
+    }
+  };
+
   return (
-    <div ref={ref} style={{ opacity: isDragging ? 0.55 : 1 }}>
+    <div
+      ref={ref}
+      data-sales-group-card
+      style={{ opacity: isDragging ? 0.55 : 1 }}
+      onPointerDown={startLongPress}
+      onPointerMove={handlePointerMove}
+      onPointerUp={clearLongPress}
+      onPointerLeave={clearLongPress}
+      onPointerCancel={clearLongPress}
+    >
       <Card
-        className="cursor-pointer hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 relative group"
-        onClick={() => onSelectGroup(group)}
+        className={`sales-group-card cursor-pointer hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 relative group ${
+          isSelected ? 'sales-group-card-selected' : ''
+        }`}
+        onClick={() => {
+          if (longPressTriggeredRef.current) {
+            longPressTriggeredRef.current = false;
+            return;
+          }
+          if (selectionMode) {
+            onToggleSelect(group.id);
+            return;
+          }
+          onSelectGroup(group);
+        }}
       >
         <div className={`absolute top-2 right-2 transition-opacity z-20 ${group.isPinned ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
           <Button

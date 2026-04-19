@@ -24,7 +24,11 @@ import {
 } from "@heroicons/react/24/outline";
 import BlueLogo from "../../imgs/Blue.png";
 
-export default function Intro({ onLogin }: { onLogin: () => void }) {
+interface IntroProps {
+  onLogin: (credentials: { email: string; password: string }) => Promise<void>;
+}
+
+export default function Intro({ onLogin }: IntroProps) {
   const [demoOpen, setDemoOpen] = useState(false);
   const [trialOpen, setTrialOpen] = useState(false);
   const [trialEmail, setTrialEmail] = useState("");
@@ -37,11 +41,12 @@ export default function Intro({ onLogin }: { onLogin: () => void }) {
   const [loginOpen, setLoginOpen] = useState(false);
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   const handleTrialSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setTrialOpen(false);
-    onLogin();
   };
 
   const handleDemoSubmit = (e: React.FormEvent) => {
@@ -49,10 +54,21 @@ export default function Intro({ onLogin }: { onLogin: () => void }) {
     setDemoOpen(false);
   };
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoginOpen(false);
-    onLogin();
+    setLoginError("");
+    setIsLoggingIn(true);
+
+    try {
+      await onLogin({ email: loginEmail, password: loginPassword });
+      setLoginOpen(false);
+      setLoginPassword("");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Login failed.";
+      setLoginError(message);
+    } finally {
+      setIsLoggingIn(false);
+    }
   };
 
   const headlineStyle = {
@@ -92,7 +108,15 @@ export default function Intro({ onLogin }: { onLogin: () => void }) {
             </a>
           </nav>
           <div className="flex items-center">
-            <Dialog open={loginOpen} onOpenChange={setLoginOpen}>
+            <Dialog
+              open={loginOpen}
+              onOpenChange={(nextOpen) => {
+                setLoginOpen(nextOpen);
+                if (!nextOpen) {
+                  setLoginError("");
+                }
+              }}
+            >
               <DialogTrigger asChild>
                 <Button className="rounded-full bg-sidebar px-9 py-5 text-base text-sidebar-foreground hover:bg-sidebar-accent">
                   Log in
@@ -118,6 +142,7 @@ export default function Intro({ onLogin }: { onLogin: () => void }) {
                     value={loginEmail}
                     onChange={(e) => setLoginEmail(e.target.value)}
                     className="bg-input-background border-border"
+                    disabled={isLoggingIn}
                     required
                   />
                 </div>
@@ -133,12 +158,20 @@ export default function Intro({ onLogin }: { onLogin: () => void }) {
                     value={loginPassword}
                     onChange={(e) => setLoginPassword(e.target.value)}
                     className="bg-input-background border-border"
+                    disabled={isLoggingIn}
                     required
                   />
                 </div>
+                {loginError ? (
+                  <p className="text-sm text-destructive">{loginError}</p>
+                ) : null}
                 <DialogFooter className="pt-2">
-                  <Button type="submit" className="w-full py-5 text-base rounded-xl bg-primary hover:bg-primary/90">
-                    Continue
+                  <Button
+                    type="submit"
+                    className="w-full py-5 text-base rounded-xl bg-primary hover:bg-primary/90"
+                    disabled={isLoggingIn}
+                  >
+                    {isLoggingIn ? "Signing in..." : "Continue"}
                   </Button>
                 </DialogFooter>
                 <p className="text-xs text-muted-foreground text-center">

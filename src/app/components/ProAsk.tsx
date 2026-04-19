@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { Check, ChevronDown, Copy, Layers, Search, Send, Sparkles } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface Message {
   id: string;
@@ -243,7 +245,13 @@ export function ProAsk() {
                     <Copy size={12} />
                     {copiedMessageId === message.id ? 'Copied' : 'Copy'}
                   </button>
-                  <p className="whitespace-pre-wrap">{message.content}</p>
+                  {message.role === 'assistant' ? (
+                    <div className="proask-markdown">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
+                    </div>
+                  ) : (
+                    <p className="whitespace-pre-wrap">{message.content}</p>
+                  )}
                   <p
                     className={`text-xs mt-2 ${
                       message.role === 'user' ? 'text-primary-foreground/70' : 'text-muted-foreground'
